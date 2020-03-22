@@ -27,9 +27,12 @@ em = CartPoleEnvManager(device)
 strategy = EpsilonGreedyStrategy(eps_start, eps_end, eps_decay)
 
 agent = Agent(strategy, em.num_actions_available(), device)
+# 1. Initiate Replay memory capacity
 memory = ReplayMemory(memory_size)
 
+# 2. Initiate policy network with random weight
 policy_net = DQN(em.get_screen_height(), em.get_screen_width()).to(device)
+#  3. Clone the policy network as target network
 target_net = DQN(em.get_screen_height(), em.get_screen_width()).to(device)
 
 target_net.load_state_dict(policy_net.state_dict())
@@ -37,15 +40,13 @@ target_net.eval()
 
 optimizer = optim.Adam(params=policy_net.parameters(), lr=lr)
 
-
-
 Experience = namedtuple(
     'Experience',
     ('state', 'action', 'next_state', 'reward')
 )
 
-# utility functions
 
+# utility functions
 def extract_tensors(experiences):
     # Convert batch of Experiences to Experience of batches
     batch = Experience(*zip(*experiences))
@@ -54,7 +55,8 @@ def extract_tensors(experiences):
     t3 = torch.cat(batch.reward)
     t4 = torch.cat(batch.next_state)
 
-    return (t1,t2,t3,t4)
+    return (t1, t2, t3, t4)
+
 
 def plot(values, moving_avg_period):
     plt.figure(2)
@@ -73,7 +75,7 @@ def get_moving_average(period, values):
     if len(values) >= period:
         moving_avg = values.unfold(dimension=0, size=period, step=1) \
             .mean(dim=1).flatten(start_dim=0)
-        moving_avg = torch.cat((torch.zeros(period-1), moving_avg))
+        moving_avg = torch.cat((torch.zeros(period - 1), moving_avg))
         return moving_avg.numpy()
     else:
         moving_avg = torch.zeros(len(values))
@@ -86,20 +88,27 @@ for episode in range(num_episodes):
     state = em.get_state()
 
     for timestep in count():
+        # 1. Select the action via exploration or exploitation
         action = agent.select_action(state, policy_net)
+        # Execute selected action in an emulator
         reward = em.take_action(action)
+        # Observe reward and next state
         next_state = em.get_state()
+        # Store experience in replay memory
         memory.push(Experience(state, action, next_state, reward))
         state = next_state
 
         if memory.can_provide_sample(batch_size):
+            # Sample random batch from replay memory
             experiences = memory.sample(batch_size)
+            # Preprocessed states from batch.
             states, actions, rewards, next_states = extract_tensors(experiences)
-
+            # Calculate loss between output Q-values and target Q-valeues.
             current_q_values = QValues.get_current(policy_net, states, actions)
+            # Requires a pass to the target network for the next state
             next_q_values = QValues.get_next(target_net, next_states)
             target_q_values = (next_q_values * gamma) + rewards
-
+            # Gradient descent updates weight in the policy network to minimize loss.
             loss = F.mse_loss(current_q_values, target_q_values.unsqueeze(1))
             optimizer.zero_grad()
             loss.backward()
@@ -109,9 +118,8 @@ for episode in range(num_episodes):
             episode_durations.append(timestep)
             plot(episode_durations, 100)
             break
-
+    # After X time steps, weights in the target network are updated to the weight in the policy network
     if episode % target_update == 0:
         target_net.load_state_dict(policy_net.state_dict())
 
 em.close()
-
