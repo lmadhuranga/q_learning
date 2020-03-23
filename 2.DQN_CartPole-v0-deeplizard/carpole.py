@@ -5,15 +5,26 @@ from itertools import count
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
+# following tutorila url
+# https://deeplizard.com/learn/video/ewRw996uevM
 
 from Libs import CartPoleEnvManager, EpsilonGreedyStrategy, ReplayMemory, Agent, DQN, QValues
 
 batch_size = 256
+# gamma, which is the discount factor used in the Bellman equation, is being set to 0.999
 gamma = 0.999
+# eps_start is the starting value of epsilon. Remember, epsilon is the name we’ve given to the exploration rate.
+# eps_end is the ending value of epsilon, and eps_decay is the decay rate we’ll use to decay epsilon over time.
 eps_start = 1
 eps_end = 0.01
 eps_decay = 0.001
+# we set target_update to 10, and this is how frequently, in terms of episodes,
+# we’ll update the target network weights with the policy network weights.
+# So, with target_update set to 10, we’re choosing to update the target network every 10 episodes.
 target_update = 10
+# we set the memory_size, which is the capacity of the replay memory,
+# to 100,000. We then set the learning rate lr that is used during training of the policy network to 0.001,
+# and the number of episodes we want to play num_episodes to 1000.
 memory_size = 100000
 lr = 0.001
 num_episodes = 1000
@@ -21,23 +32,37 @@ num_episodes = 1000
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython: from IPython import display
 
+#  let’s set up our device for PyTorch. This tells PyTorch to use a GPU if it’s available, otherwise use the CPU.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Now, we set up our environment manager em using the CartPoleEnvManager class, and we pass in the required device.
+# We then set our strategy to be an instance of the EpsilonGreedyStrategy class, and we pass in the required start,
+# end, and decay values for epsilon.
 em = CartPoleEnvManager(device)
 strategy = EpsilonGreedyStrategy(eps_start, eps_end, eps_decay)
 
+# We then define an agent using our Agent class and pass in the required strategy, number of actions available, and device.
+# We then initialize memory to be an instance of ReplayMemory and pass in the capacity using memory_size.
 agent = Agent(strategy, em.num_actions_available(), device)
 # 1. Initiate Replay memory capacity
 memory = ReplayMemory(memory_size)
 
+# Now, we define both our policy network and target network by creating two instances of our DQN class and
+# passing in the height and width of the screen to set up the appropriate input shape of the networks.
+# We put these networks on our defined device using PyTorch’s to() function.
 # 2. Initiate policy network with random weight
 policy_net = DQN(em.get_screen_height(), em.get_screen_width()).to(device)
 #  3. Clone the policy network as target network
 target_net = DQN(em.get_screen_height(), em.get_screen_width()).to(device)
 
+# We then set the weights and biases in the target_net to be the same as those in the policy_net using PyTorch’s state_dict()
+# and load_state_dict() functions. We also put the target_net into eval mode, which tells PyTorch
+# cthat this network is not in training mode. In other words, this network will only be used for inference.
 target_net.load_state_dict(policy_net.state_dict())
 target_net.eval()
 
+# Lastly, we set optimizer equal to the Adam optimizer, which accepts our policy_net.
+# parameters() as those for which we’ll be optimizing, and our defined learning rate lr.
 optimizer = optim.Adam(params=policy_net.parameters(), lr=lr)
 
 Experience = namedtuple(
@@ -81,23 +106,38 @@ def get_moving_average(period, values):
         moving_avg = torch.zeros(len(values))
         return moving_avg.numpy()
 
+# Training loop
+# We’re now all set up to start training.
+# We’re going to be storing our episode_durations during training in order to plot them using the plot()
+# function we developed last time, so we create an empty list to store them in.
 
 episode_durations = []
 for episode in range(num_episodes):
+    # For each episode, we first reset the environment, then get the initial state.cc
     em.reset()
     state = em.get_state()
-
+    # For each episode, we first reset the environment, then get the initial state.
+    #
+    # Now, we'll step into the nested for loop that will iterate over each time step within each episode.
     for timestep in count():
-        # 1. Select the action via exploration or exploitation
-        action = agent.select_action(state, policy_net)
-        # Execute selected action in an emulator
-        reward = em.take_action(action)
-        # Observe reward and next state
-        next_state = em.get_state()
-        # Store experience in replay memory
-        memory.push(Experience(state, action, next_state, reward))
+        # For each time step, our agent selects an action based on the current state. Recall,
+        # we also need to pass in the required policy_net since the agent will use this network to select
+        # it’s action if it exploits the environment rather than explores it.
+        action = agent.select_action(state, policy_net)  # 1. Select the action via exploration or exploitation
+        reward = em.take_action(action)  # Execute selected action in an emulator
+
+        # The agent then takes the chosen action and receives the associated reward, and we get the next_state.
+        next_state = em.get_state()  # Observe reward and next state
+
+        # We can create an Experience using the state, action, next_state,and reward and push this onto replay memory.
+        # After which, we transition to the next state by setting our current state to next_state.
+        memory.push(Experience(state, action, next_state, reward))  # Store experience in replay memory
         state = next_state
 
+        # Now that our agent has had an experience and stored it in replay memory, we’ll check to see
+        # if we can get a sample from replay memory to train our policy_net.
+        # Remember, we covered in a previous episode that we can get a sample equal to the batch_size
+        # from replay memory as long as the current size of memory is at least the batch_size.
         if memory.can_provide_sample(batch_size):
             # Sample random batch from replay memory
             experiences = memory.sample(batch_size)
