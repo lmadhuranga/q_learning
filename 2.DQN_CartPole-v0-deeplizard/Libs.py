@@ -61,12 +61,35 @@ class Agent():
                 return policy_net(state).argmax(dim=1).to(self.device)
 
 
+# Replay Memory Now that we have our Experience class, let’s define our ReplayMemory class, which is where these
+# experiences will be stored.
+#
+# Recall that replay memory will have some set capacity. This capacity is the only parameter that needs to be
+# specified when creating a ReplayMemory object.
 class ReplayMemory():
+    # We initialize ReplayMemory’s capacity to whatever was passed in, and we also define a memory attribute equal to
+    # an empty list. memory will be the structure that actually holds the stored experiences. We also create a
+    # push_count attribute, which we initialize to 0, and we’ll use this to keep track of how many experiences we’ve
+    # added to memory.
     def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
         self.push_count = 0
+    # need a way to store experiences in replay memory as they occur, so we define this push() function to do just that.
 
+    # ush() accepts experience, and when we want to push a new experience into replay memory, we have to check first
+    # that the amount of experiences we already have in memory is indeed less than the memory capacity. If it is,
+    # then we append the experience to memory.
+    #
+    # If, on the other hand, the amount of experiences we have in memory has reached capacity, then we begin to push
+    # new experiences onto the front of memory, overwriting the oldest experiences first. We then update our
+    # push_count by incrementing by 1.
+    #
+    # Aside from storing experiences in replay memory, we also want to be able to sample experiences from replay
+    # memory. Remember, these sampled experiences will be what we use to train our DQN.
+    #
+    # We define this sample() function, which returns a random sample of experiences. The number of randomly sampled
+    # experiences returned will be equal to the batch_size parameter passed to the function.
     def push(self, experience):
         if len(self.memory) < self.capacity:
             self.memory.append(experience)
@@ -102,6 +125,8 @@ class CartPoleEnvManager():
     def num_actions_available(self):
         return self.env.action_space.n
 
+    # Using this action, we call step() on the environment, which will execute the given action taken by the agent in
+    # the environment.
     def take_action(self, action):
         _, reward, self.done, _ = self.env.step(action.item())
         return torch.tensor([reward], device=self.device)
@@ -109,6 +134,14 @@ class CartPoleEnvManager():
     def just_starting(self):
         return self.current_screen is None
 
+    # The point of this function is to return the current state of the environment in the form of a processed image
+    # of the screen. Remember, a deep Q-network takes states of the environment as input, and we previously mentioned
+    # that for our environment, states would be represented using screenshot-like images.
+    #
+    # Actually, note that we will represent a single state in the environment as the difference between the current
+    # screen and the previous screen. This will allow the agent to take the velocity of the pole into account from
+    # one single image. So, a single state will be represented as a processed image of the difference between two
+    # consecutive screens. We’ll see in a moment what type of processing is being done.
     def get_state(self):
         if self.just_starting() or self.done:
             self.current_screen = self.get_processed_screen()
@@ -127,14 +160,33 @@ class CartPoleEnvManager():
     def get_screen_width(self):
         screen = self.get_processed_screen()
         return screen.shape[3]
-
+    # This function first renders the environment as an RGB array using the render() function and then transposes
+    # this array into the order of channels by height by width, which is what our PyTorch DQN will expect.
+    #
+    # This result is then cropped by passing it to the crop_screen() function, which we’ll cover next. We then pass
+    # the cropped screen to the function transform_screen_data(), again, which we’ll cover in a moment, which just
+    # does some final data conversion and rescaling to the cropped image.
+    #
+    # This transposed, cropped, and transformed version of the original screen returned by gym is what is returned by
+    # get_processed_screen().
     def get_processed_screen(self):
         screen = self.render('rgb_array').transpose((2, 0, 1))  # PyTorch expects CHW
         screen = self.crop_screen(screen)
         return self.transform_screen_data(screen)
 
+    # The crop_screen() function accepts a screen and will return a cropped version of it. We first get the height of
+    # the screen that was passed in, and then we strip off the top and bottom of the screen.
+    #
+    # We’ll see an example of a screen both before and after it’s been processed in a moment, and there you’ll see
+    # how there is a lot of plain white space at the top and bottom of the cart and pole environment,
+    # so we’re removing this empty space here. We set top equal to the value that corresponds to 40% of the
+    # screen_height. Similarly, we set bottom equal to the value that corresponds to 80% of the screen_height.
+    #
+    # With these top and bottom values, we then take a slice of the screen starting from the top value down to the
+    # bottom value so that we’ve essentially stripped off the top 40% of the original screen and the bottom 20%.
     def crop_screen(self, screen):
         screen_height = screen.shape[1]
+
 
         # Strip off top and bottom
         top = int(screen_height * 0.4)
@@ -142,6 +194,22 @@ class CartPoleEnvManager():
         screen = screen[:, top:bottom, :]
         return screen
 
+    # Convert and rescale screen image data We first pass this screen to the numpy ascontiguousarray() function,
+    # which returns a contiguous array of the same shape and content as screen, meaning that all the values of this
+    # array will be stored sequentially next to each other in memory.
+    #
+    # We’re also converting the individual pixel values into type float32 and rescaling all the values by dividing
+    # them each by 255. This is a common rescaling process that occurs during image processing for neural network
+    # input.
+    #
+    # We then convert this array to a PyTorch tensor.
+    #
+    # We then use torchvision’s Compose class to chain together several image transformations. We’ll call this
+    # compose resize. So, when a tensor is passed to resize, it will first be converted to a PIL image, then it will
+    # be resized to a 40 x 90 image. The PIL image is then transformed to a tensor.
+    #
+    # So, we pass our screen from above to resize and then add an extra batch dimension to the tensor by calling
+    # unsqueeze(). This result is then what is returned by the transform_screen_data() function.
     def transform_screen_data(self, screen):
         # Convert to float, rescale, convert to tensor
         screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
@@ -158,18 +226,71 @@ class CartPoleEnvManager():
 
 class QValues():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    # The first static method is get_current(). This function accepts a policy_net, states, and actions.
+    # When we call this function in our main program, recall that these states and actions are the state-action pairs
+    # that were sampled from replay memory. So, the states and actions correspond with each other.
     @staticmethod
     def get_current(policy_net, states, actions):
         return policy_net(states).gather(dim=1, index=actions.unsqueeze(-1))
 
+
+
+
+
+
+    # This function accepts a target_net and next_states. Recall that for each next state, we want to obtain the
+    # maximum q-value predicted by the target_net among all possible next actions.
+    #
+    # To do that, we first look in our next_states tensor and find the locations of all the final states. If an
+    # episode is ended by a given action, then we’re calling the next_state that occurs after that action was taken
+    # the final state.
+    #
+    # Remember, last time we discussed that final states are represented with an all black screen. Therefore,
+    # all the values within the tensor that represent that final state would be zero.
+    #
+    # We want to know where the final states are, if we even have any at all in a given batch, because we’re not
+    # going to want to pass these final states to our target_net to get a predicted q-value. We know that the q-value
+    # for final states is zero because the agent is unable to receive any reward once an episode has ended.
+    #
+    # So, we’re finding the locations of these final states so that we know not to pass them to the target_net for
+    # q-value predictions when we pass our non-final next states.
+    #
     @staticmethod
     def get_next(target_net, next_states):
-        final_state_locations = next_states.flatten(start_dim=1) \
-            .max(dim=1)[0].eq(0).type(torch.bool)
+        # To find the locations of these potential final states, we flatten the next_states tensor along dimension 1,
+        # and we check each individual next state tensor to find its maximum value. If its maximum value is equal to 0,
+        # then we know that this particular next state is a final state, and we represent that as a True within this
+        # final_state_locations tensor. next_states that are not final are represented by a False value in the tensor.
+        final_state_locations = next_states.flatten(start_dim=1).max(dim=1)[0].eq(0).type(torch.bool)
+
+        # We then create a second tensor non_final_state_locations, which is just an exact opposite of
+        # final_state_locations. It contains True for each location in the next_states tensor that corresponds to a
+        # non-final state and a False for each location that corresponds to a final state.
         non_final_state_locations = (final_state_locations == False)
+
+        # Now that we know the locations of the non-final states, we can now get the values of these states by indexing
+        # into the next_states tensor and getting all of the corresponding non_final_states.
         non_final_states = next_states[non_final_state_locations]
+
+        # Next, we find out the batch_size by checking to see how many next states are in the next_states tensor. Using
+        # this, we create a new tensor of zeros that has a length equal to the batch size. We also send this tensor to
+        # the device defined at the start of this class.
+        #
+        # then index into this tensor of zeros with the non_final_state_locations, and we set the corresponding values
+        # for all of these locations equal to the maximum predicted q-values from the target_net across each action.
+        #
+        # This leaves us with a tensor that contains zeros as the q-values associated with any final state and contains
+        # the target_net's maximum predicted q-value across all actions for each non-final state. This result is what is
+        # finally returned by get_next().
+        #
+        # The whole point of all this code in this function was to find out if we have any final states in our
+        # next_states tensor. If we do, then we need to find out where they are so that we don’t pass them to the
+        # target_net. We don’t want to pass them to the target_net for a predicted q-value since we know that their
+        # associated q-values will be zero.
         batch_size = next_states.shape[0]
         values = torch.zeros(batch_size).to(QValues.device)
         values[non_final_state_locations] = target_net(non_final_states).max(dim=1)[0].detach()
         return values
+
+
+

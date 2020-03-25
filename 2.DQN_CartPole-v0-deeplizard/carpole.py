@@ -139,27 +139,69 @@ for episode in range(num_episodes):
         # Remember, we covered in a previous episode that we can get a sample equal to the batch_size
         # from replay memory as long as the current size of memory is at least the batch_size.
         if memory.can_provide_sample(batch_size):
-            # Sample random batch from replay memory
-            experiences = memory.sample(batch_size)
-            # Preprocessed states from batch.
-            states, actions, rewards, next_states = extract_tensors(experiences)
-            # Calculate loss between output Q-values and target Q-valeues.
-            current_q_values = QValues.get_current(policy_net, states, actions)
-            # Requires a pass to the target network for the next state
-            next_q_values = QValues.get_next(target_net, next_states)
+            # If we can get a sample from memory,
+            # then we get a sample equal to batch_size and assign this sample to the variable experiences.
+            # We’re then going to do some data manipulation to extract all the states, actions, rewards, and next_states
+            # into their own tensors from the experiences list.
+            experiences = memory.sample(batch_size)  # Sample random batch from replay memory
+
+            # We do this using the extract_tensors() function.
+            # We haven’t covered the inner workings of this function yet,
+            # but stick around until the end, and we’ll circle back around to cover it in detail. For now,
+            # let’s continue with our training loop so that we can stay in flow.
+            states, actions, rewards, next_states = extract_tensors(experiences)  # Preprocessed states from batch.
+            # Continuing with the code above, we now we get the q-values for the corresponding state-action pairs that
+            # we’ve extracted from the experiences in our batch. We do this using QValues.get_current(),
+            # to which we pass our policy_net, states, and actions.
+
+            # just know that get_current() will return the q-values for any given state-action pairs, as predicted
+            # from the policy network. The q-values will be returned as a PyTorch tensor.
+            current_q_values = QValues.get_current(policy_net, states, actions)  # Calculate loss between output Q-values and target Q-valeues.
+
+            # We also need to get the q-values for the next states in the batch as well.
+            # We’re able to do this using QValues.get_next(), and passing in the target_net and next_states that
+            # we extracted from the experiences.
+            # This function will return the maximum q-values for the next states using using the best corresponding
+            # next actions. It does this using the target network because, remember from our episode on fixed Q-targets,
+            # the q-values for next states are calculated using the target network.
+            next_q_values = QValues.get_next(target_net, next_states)  # Requires a pass to the target network for the next state
+
+            # We multiply each of the next_q_values by our discount rate gamma and add this result to the corresponding
+            # reward in the rewards tensor to create a new tensor of target_q_values.
             target_q_values = (next_q_values * gamma) + rewards
-            # Gradient descent updates weight in the policy network to minimize loss.
-            loss = F.mse_loss(current_q_values, target_q_values.unsqueeze(1))
+            # We now can calculate the loss between the current_q_values and the target_q_values using
+            # mean squared error mse as loss function, and then we zero out the gradients using optimizer.zero_grad().
+
+            loss = F.mse_loss(current_q_values, target_q_values.unsqueeze(1))  # Gradient descent updates weight in the policy network to minimize loss.
+            # This function sets the gradients of all the weights and baises in the policy_net to zero.
+            # Since PyTorch accumulates the gradients when it does backprop, we need to call zero_grad()
+            # before backprop occurs. Otherwise, if we didn’t zero out the gradients each time, then we’d be
+            # accumulating gradients across all backprop runs.
             optimizer.zero_grad()
+
+            # We then call loss.backward(), which computes the gradient of the loss with respect to all the weights and
+            # biases in the policy_net.
             loss.backward()
+            # We now call step() on our optimizer, which updates the weights and biases with the gradients that were
+            # computed when we called backward() on our loss.
             optimizer.step()
 
+        # We then check to see if the last action our agent took ended the episode by getting the value of done
+        # from our environment manager em. If the episode ended, then we append the current timestep to the episode_
+        # durations list to store how long this particular episode lasted.
         if em.done:
             episode_durations.append(timestep)
+            # We then plot the duration and the 100-period moving average to the screen and break out of the inner
+            # loop so that we can start a new episode.
             plot(episode_durations, 100)
             break
-    # After X time steps, weights in the target network are updated to the weight in the policy network
+    # Before starting a new episode though, we have one final check to see if we should do an update to our target_net.
     if episode % target_update == 0:
+        # Recall, our target_update variable is set to 10, so we check if our current episode is a multiple of 10,
+        # and if it is, then we update the target_net weights with the policy_net weights.
+        #
+        # At this point, we can start a new episode. This whole process will end once we’ve reached the number of
+        # episodes set in num_episodes. At that point, we'll close the enironment manager.
         target_net.load_state_dict(policy_net.state_dict())
 
 em.close()
