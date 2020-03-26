@@ -30,8 +30,22 @@ class DQN(nn.Module):
         return t
 
 
-
+# Epsilon Greedy Strategy Hopefully you remember from earlier in this series the concept of exploration versus
+# exploitation. This has to do with the way our agent selects actions. Recall, our agent’s actions will either fall
+# in the category of exploration, where the agent is just exploring the environment by taking a random action from a
+# given state, or the category of exploitation, where the agent exploits what it’s learned about the environment to
+# take the best action from a given state.
+#
+# To get a balance of exploration and exploitation, we use what we previously introduced as an epsilon greedy
+# strategy. With this strategy, we define an exploration rate called epsilon that we initially set to 1 . This
+# exploration rate is the probability that our agent will explore the environment rather than exploit it. With
+# epsilon equal to 1 , it is 100 percent certain that the agent will start out by exploring the environment.
+#
+# As the agent learns more about the environment, though, epsilon will decay by some decay rate that we set so that
+# the likelihood of exploration becomes less and less probable as the agent learns more and more about the
+# environment. We’re now going to write an EpsilonGreedyStrategy class that puts this idea into code.
 class EpsilonGreedyStrategy():
+    # Our EpsilonGreedyStrategy accepts start, end, and decay, which correspond to the starting, ending, and decay values of epsilon. These attributes all get initialized based on the values that are passed in during object creation.
     def __init__(self, start, end, decay):
         self.start = start
         self.end = end
@@ -41,18 +55,41 @@ class EpsilonGreedyStrategy():
         return self.end + (self.start - self.end) * \
                math.exp(-1. * current_step * self.decay)
 
-
+# So, later when we create an Agent object, we’ll need to already have an instance of EpsilonGreedyStrategy class
+# created so that we can use that strategy to create our agent. num_actions corresponds to how many possible actions
+# can the agent take from a given state. In our cart and pole example, this number will always be two since the agent
+# can always choose to only move left or right.
 class Agent():
+    # We initialize the agent’s strategy and num_actions accordingly, and we also initialize the current_step
+    # attribute to 0. This corresponds to the agent’s current step in the environment. The Agent class has a single
+    # function called select_action(), which requires a state and a policy_net.
     def __init__(self, strategy, num_actions, device):
         self.current_step = 0
         self.strategy = strategy
         self.num_actions = num_actions
         self.device = device
 
+    # Remember a policy network is the name we give to our deep Q-network that we train to learn the optimal policy.
     def select_action(self, state, policy_net):
+        # Within this function, we first initialize rate to be equal to the exploration rate returned from the
+        # epsilon greedy strategy that was passed in when we created our agent, and we increment the agent’s
+        # current_step by 1.
         rate = self.strategy.get_exploration_rate(self.current_step)
         self.current_step += 1
 
+        # We then check to see if the exploration rate is greater than a randomly generated number between 0 and 1.
+        # If it is, then we explore the environment by randomly selecting an action, either 0 or 1, corresponding to
+        # left or right moves.
+        #
+        # If the exploration rate is not greater than the random number, then we exploit the environment by selecting
+        # the action that corresponds to the highest Q-value output from our policy network for the given state.
+        #
+        # We’re specifying with torch.no_grad() before we pass data to our policy_net to turn off gradient tracking
+        # since we’re currently using the model for inference and not training.
+        #
+        # During training PyTorch keeps track of all the forward pass calculations that happen within the network. It
+        # needs to do this so that it can know how to apply backpropagation later. Since we’re only using the model
+        # for inference at the moment, we’re telling PyTorch not to keep track of any forward pass calculations.
         if rate > random.random():
             action = random.randrange(self.num_actions)
             return torch.tensor([action]).to(self.device)  # explore
@@ -87,9 +124,6 @@ class ReplayMemory():
     #
     # Aside from storing experiences in replay memory, we also want to be able to sample experiences from replay
     # memory. Remember, these sampled experiences will be what we use to train our DQN.
-    #
-    # We define this sample() function, which returns a random sample of experiences. The number of randomly sampled
-    # experiences returned will be equal to the batch_size parameter passed to the function.
     def push(self, experience):
         if len(self.memory) < self.capacity:
             self.memory.append(experience)
@@ -97,9 +131,14 @@ class ReplayMemory():
             self.memory[self.push_count % self.capacity] = experience
         self.push_count += 1
 
+    # We define this sample() function, which returns a random sample of experiences. The number of randomly sampled
+    # experiences returned will be equal to the batch_size parameter passed to the function.
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
 
+    # Finally, we have this can_provide_sample() function that returns a boolean to tell us whether or not we can
+    # sample from memory. Recall that the size of a sample we’ll obtain from memory will be equal to the batch size
+    # we use to train our network.
     def can_provide_sample(self, batch_size):
         return len(self.memory) >= batch_size
 
