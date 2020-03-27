@@ -30,8 +30,8 @@ class DQN(nn.Module):
         return t
 
 
-# Epsilon Greedy Strategy Hopefully you remember from earlier in this series the concept of exploration versus
-# exploitation. This has to do with the way our agent selects actions. Recall, our agent’s actions will either fall
+# Epsilon Greedy Strategy - exploration versus exploitation. This has to do with the way our agent selects actions.
+# Recall, our agent’s actions will either fall
 # in the category of exploration, where the agent is just exploring the environment by taking a random action from a
 # given state, or the category of exploitation, where the agent exploits what it’s learned about the environment to
 # take the best action from a given state.
@@ -45,7 +45,9 @@ class DQN(nn.Module):
 # the likelihood of exploration becomes less and less probable as the agent learns more and more about the
 # environment. We’re now going to write an EpsilonGreedyStrategy class that puts this idea into code.
 class EpsilonGreedyStrategy():
-    # Our EpsilonGreedyStrategy accepts start, end, and decay, which correspond to the starting, ending, and decay values of epsilon. These attributes all get initialized based on the values that are passed in during object creation.
+    # Our EpsilonGreedyStrategy accepts start, end, and decay, which correspond to the starting, ending,
+    # and decay values of epsilon. These attributes all get initialized based on the values that are passed in during
+    # object creation.
     def __init__(self, start, end, decay):
         self.start = start
         self.end = end
@@ -142,7 +144,9 @@ class ReplayMemory():
     def can_provide_sample(self, batch_size):
         return len(self.memory) >= batch_size
 
-
+# This class will manage our cart and pole environment. It will wrap several of gym’s environment capabilities,
+# and it will also give us some added functionality, like image preprocessing, for the environment images that will
+# be given to our network as input.
 class CartPoleEnvManager():
     def __init__(self, device):
         self.device = device

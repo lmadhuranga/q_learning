@@ -8,6 +8,7 @@ import torch.nn.functional as F
 # following tutorila url
 # https://deeplizard.com/learn/video/ewRw996uevM
 
+
 from Libs import CartPoleEnvManager, EpsilonGreedyStrategy, ReplayMemory, Agent, DQN, QValues
 
 batch_size = 256
@@ -41,8 +42,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 em = CartPoleEnvManager(device)
 strategy = EpsilonGreedyStrategy(eps_start, eps_end, eps_decay)
 
-# We then define an agent using our Agent class and pass in the required strategy, number of actions available, and device.
-# We then initialize memory to be an instance of ReplayMemory and pass in the capacity using memory_size.
+# We then define an agent using our Agent class and pass in the required strategy, number of actions available,
+# and device. We then initialize memory to be an instance of ReplayMemory and pass in the capacity using memory_size.
 agent = Agent(strategy, em.num_actions_available(), device)
 # 1. Initiate Replay memory capacity
 memory = ReplayMemory(memory_size)
@@ -55,9 +56,9 @@ policy_net = DQN(em.get_screen_height(), em.get_screen_width()).to(device)
 #  3. Clone the policy network as target network
 target_net = DQN(em.get_screen_height(), em.get_screen_width()).to(device)
 
-# We then set the weights and biases in the target_net to be the same as those in the policy_net using PyTorch’s state_dict()
-# and load_state_dict() functions. We also put the target_net into eval mode, which tells PyTorch
-# cthat this network is not in training mode. In other words, this network will only be used for inference.
+# We then set the weights and biases in the target_net to be the same as those in the policy_net using PyTorch’s
+# state_dict() and load_state_dict() functions. We also put the target_net into eval mode, which tells PyTorch cthat
+# this network is not in training mode. In other words, this network will only be used for inference.
 target_net.load_state_dict(policy_net.state_dict())
 target_net.eval()
 
